@@ -1,0 +1,251 @@
+import pandas as pd
+import numpy as np
+import sympy as sp
+import math
+from sympy import Eq, var, solve, symbols,nsolve,S
+import matplotlib.pyplot as plt
+from scipy.optimize import fsolve
+
+def channel_calc(Q,So,n,Bo,z,D,init_guess,type):
+    print('channel type: ' + type)
+    # variables
+    g = 9.81
+    Yn = symbols('Yn', real=True,positive=True)  # create Yn variable
+    if type == 'Circular':
+        T = 2*(D*Yn-Yn**2)**0.5
+        A = ((D**2)/4) * sp.acos(1-2*Yn/D) - (D/2-Yn)*(D*Yn-Yn**2)**0.5
+        P = D*sp.acos(1-2*Yn/D)
+        R = A / P  # hydraulic radius [m]
+    else:
+        T = Bo + 2 * z * Yn  # top width [m]
+        A = (Bo + z * Yn) * Yn  # area [m2]
+        P = Bo + 2 * Yn * np.sqrt(1 + z ** 2)  # wetted perimeter [m]
+        R = A / P  # hydraulic radius [m]
+
+    # Yn using mannings equation:
+    eq = A / n * R ** (2 / 3) * abs(So) ** (1 / 2) - Q
+    if type == 'Circular':
+        solution = nsolve(eq, Yn,init_guess)
+        Yn_sol = solution
+    else:
+        solution = nsolve(eq, Yn, init_guess)
+        Yn_sol = solution
+    print('Normal Depth:', round(Yn_sol, 3), '[m]')
+
+
+    # Froude Number
+    if type == 'Circular':
+        T = 2*(D*Yn_sol-Yn_sol**2)**0.5
+    else:
+        T = Bo + 2 * z * Yn_sol  # top width [m]
+        A = (Bo + z * Yn_sol) * Yn_sol  # area [m2]
+    Fr_sol = (Q / A) / math.sqrt(g * A/T)
+    print('Froude Number: ', round(Fr_sol, 3), '[-]')
+
+
+    # critical depth
+    Yc = symbols('Yc',positive=True,reals=True)         # create Yc variable
+    if type == 'Circular':
+        Tc = 2*(D*Yc-Yc**2)**(0.5)
+        Ac = ((D**2)/4) * sp.acos(1-2*Yc/D) - (D/2-Yc)*(D*Yc-Yc**2)**(0.5)
+    else:
+        Tc = Bo + 2 * z * Yc  # top width [m]
+        Ac = (Bo + z * Yc) * Yc  # area [m2]
+    FR = (Q/Ac)/(sp.sqrt(g*(Ac/Tc))) - 1                 # Froude number
+    if type == 'Circular':
+        solution = nsolve(FR, Yc, init_guess)
+        Yc_sol = solution
+    else:
+        solution = sp.solveset(FR, Yc)
+        Yc_sol = solution.args[0].args[0]
+
+    print('The critical flow depth is: ', round(Yc_sol,3), '[m]')
+
+    # Flow Regime
+    if Yn_sol > Yc_sol:
+        regime = 'The flow regime is sub-critical'
+    elif Yn_sol < Yc_sol:
+        regime = 'The flow regime is super-critical'
+    print(regime)
+
+    # # New So (comment out for Q2)
+    # Sc = symbols('Sc', real=True, positive=True)  # create Yn variable
+    # Ac = (Bo + z * Yc_sol) * Yc_sol  # area [m2]
+    # Pc = Bo + 2 * Yc_sol * np.sqrt(1 + z ** 2)  # wetted perimeter [m]
+    # Rc = Ac / Pc  # hydraulic radius [m]
+    # eq = Ac / n * Rc ** (2 / 3) * Sc ** (1 / 2) - Q
+    # if type == 'Circular':
+    #     solution = nsolve(eq, Sc, init_guess)
+    # else:
+    #     solution = nsolve(eq, Sc, init_guess)
+    # Sc_sol = solution
+    # print('Critical slope:', round(Sc_sol, 3), '[-]')
+
+    # Flow Profile
+    if Yn_sol > Yc_sol:
+        profile = 'Mild [M]'
+        print('The channel profile is: '+profile)
+    if So == 0:
+        profile = 'Horizontal [H]'
+        print('The channel profile is: '+profile)
+    if Yn_sol == Yc_sol:
+        profile = 'Critical [C]'
+        print('The channel profile is: '+profile)
+    if Yn_sol < Yc_sol:
+        profile = 'Steep [S]'
+        print('The channel profile is: '+profile)
+    if So < 0:
+        profile = 'Adverse [A]'
+        print('The channel profile is: '+profile)
+
+
+    return Yn_sol, Fr_sol, Yc_sol, regime
+
+# create bed profile
+
+# range of x values in 100 m increments
+X = np.linspace(0,45000,451)
+delta_x = X[1] - X[0]
+print(delta_x)
+# segment data
+segment = ['Reach 1', 'Reach 2','Reach 3']
+
+Reach = {
+    'Reach 1':{'So':4*10**-5,'n':0.022},
+    'Reach 2':{'So':1.75*10**-3,'n':0.038},
+    'Reach 3':{'So':4.5*10**-4,'n':0.03}
+}
+
+# Solve Yc and Yn for each reach
+Yn = []
+g = 9.81                            # acceleration due to gravity
+Bo = 19                             # channel wdith [m]
+z = 0
+D = 0
+Q = 50 + (9+1+7+3)/4
+init_guess = 0.4                    # tweak for some parameters
+for i in range(len(segment)):
+    print(segment[i])
+    channel = channel_calc(Q, Reach[segment[i]]['So'], Reach[segment[i]]['n'], Bo, z,D,init_guess, 'Rectangular')
+    Yn = Yn + [channel[0]]
+    Yc = float(channel[2])
+
+# create bed elevation profile
+n_lst = []
+So_lst = []
+Yn_lst = []
+for i in range(len(X)):
+    if X[i] == 0:
+        bed_elevation = [0]
+        So_lst = So_lst + [Reach['Reach 1']['So']]
+        n_lst = n_lst + [Reach['Reach 1']['n']]
+        Yn_lst = Yn_lst + [float(Yn[0])+bed_elevation[i]]
+    elif X[i] <= 20000:
+        elevation = bed_elevation[-1] + Reach['Reach 1']['So'] * delta_x
+        bed_elevation = bed_elevation + [elevation]
+        So_lst = So_lst + [Reach['Reach 1']['So']]
+        n_lst = n_lst + [Reach['Reach 1']['n']]
+        Yn_lst = Yn_lst + [float(Yn[0])+bed_elevation[i]]
+    elif (X[i] > 20000) & (X[i] <= 24955):
+        elevation = bed_elevation[-1] + Reach['Reach 2']['So']*delta_x
+        bed_elevation = bed_elevation + [elevation]
+        So_lst = So_lst + [Reach['Reach 2']['So']]
+        n_lst = n_lst + [Reach['Reach 2']['n']]
+        Yn_lst = Yn_lst + [float(Yn[1])+bed_elevation[i]]
+    elif X[i] > 24955:
+        elevation = bed_elevation[-1] + Reach['Reach 3']['So'] * delta_x
+        bed_elevation = bed_elevation + [elevation]
+        So_lst = So_lst + [Reach['Reach 3']['So']]
+        n_lst = n_lst + [Reach['Reach 3']['n']]
+        Yn_lst = Yn_lst + [float(Yn[2])+bed_elevation[i]]
+
+# create dataframe and reverse profile
+df = pd.DataFrame(X,columns=['X'])
+df['Bed Elevation'] = pd.DataFrame(bed_elevation)
+df['Yc'] = Yc + df['Bed Elevation']
+# df['Q'] = Q
+# df['Bo'] = Bo
+# df['z'] = z
+# df['n'] = n
+# df['So'] = So
+
+# use standard step method
+
+Ke_c = 0.3
+a = 1
+
+Sf_lst = []
+Y_lst = []
+y_lst = []
+V_lst = []
+for i in range(len(X)):
+    if i == 0:
+        # calculate boundary conditions
+        n = n_lst[i]
+        Yo = Yn[0]
+        yo = Yc
+        Ao = (Bo + z * Yo) * Yo  # area [m2]
+        Po = Bo + 2 * Yo * np.sqrt(1 + z ** 2)  # wetted perimeter [m]
+        Ro = Ao / Po  # hydraulic radius [m]
+        V0 = Q / Ao
+        Sfo = (V0 ** 2) * (n ** 2) / (Ro ** (4 / 3))
+        Y_lst = Y_lst + [float(Yo+bed_elevation[i])]
+        y_lst = Y_lst + [float(Yo)]
+        Sf_lst = Sf_lst + [Sfo]
+        V_lst = V_lst + [V0]
+    else:
+        y = symbols('y', real=True, positive=True)  # create Y variable
+        n = n_lst[i]
+        A = (Bo + z * y) * y  # area [m2]
+        P = Bo + 2 * y * np.sqrt(1 + z ** 2)  # wetted perimeter [m]
+        R = A / P  # hydraulic radius [m]
+        V = Q/A
+        Sf_i = (V ** 2) * (n ** 2) / (R ** (4 / 3))
+        Sf_avg = (Sf_i+Sf_lst[i-1])/2
+        Y_i = bed_elevation[i] + y
+        if V_lst[i-1] > V_lst[i-2]:
+            Ke_c = 0.1
+        else:
+            Ke_c = 0.3
+        eqn = Y_lst[i-1] - Y_i + (1-Ke_c)*(a*(V_lst[i-1]**2)/(2*g)-a*(V**2)/(2*g)) + Sf_avg*delta_x
+        solution = sp.nsolve(eqn,y,init_guess)
+        Y_lst = Y_lst + [float(solution+bed_elevation[i])]
+        y_lst = y_lst + [float(solution)]
+
+        # calculate new Sf and V values for solved Y value
+        y_sol = solution
+        A = (Bo + z * y_sol) * y_sol  # area [m2]
+        P = Bo + 2 * y_sol * np.sqrt(1 + z ** 2)  # wetted perimeter [m]
+        V = Q/A
+        R = A / P  # hydraulic radius [m]
+        Sf = (V ** 2) * (n ** 2) / (R ** (4 / 3))
+
+        Sf_lst = Sf_lst + [Sf]
+        V_lst = V_lst + [V]
+
+df['Y'] = pd.DataFrame(Y_lst)
+df['y'] = pd.DataFrame(y_lst)
+df['Yn'] = pd.DataFrame(Yn_lst)
+df = df.iloc[::-1].reset_index(drop=True)
+
+# find distance when Y reaches Yn at reach 3
+df['Yn delta'] = np.abs(df['Y'] - df['Yn'])/df['Yn']
+distance_df = df[(df['Yn delta']<=0.001) & (df['X'] >=24955)]
+distance = np.min(distance_df['X'])
+distance_x = np.full(shape = len(X),fill_value=distance,dtype=np.int)
+distance_y = np.linspace(0,20,len(X))
+
+print(df)
+print('The water surface elevation approximately reaches normal flow depth at: ',distance,'[m]')
+
+alphas = np.array([1,1,1,0.5])
+
+# plot bed elevation
+df.plot(x = 'X',y = ['Bed Elevation','Yc','Y'],color = ['black','darkred','deepskyblue'],style=['-','--','-'])
+plt.plot(df['X'],df['Yn'],color='navy',linestyle='--',alpha = 0.5,label='Yn')
+plt.plot(distance_x,distance_y,color='orangered',linestyle='--',alpha = 0.5,label='Yn reached')
+plt.gca().invert_xaxis()
+plt.legend()
+plt.xlabel('Distance [m]')
+plt.ylabel('Bed Elevation [m]')
+plt.show()
